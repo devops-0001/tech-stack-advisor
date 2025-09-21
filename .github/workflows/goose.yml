@@ -68,6 +68,8 @@ jobs:
         run: cat instructions.txt
 
       - name: Run Goose and filter output
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }} 
         run: |
           goose run --instructions instructions.txt \
           | sed -E 's/\x1B\[[0-9;]*[mK]//g' \
