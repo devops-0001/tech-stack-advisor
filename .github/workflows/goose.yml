@@ -3,7 +3,8 @@ name: Goose
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
-
+  workflow_dispatch:
+  
 permissions:
   contents: write
   pull-requests: write
