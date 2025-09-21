@@ -48,7 +48,7 @@ jobs:
           mkdir -p ~/.config/goose
           cat > ~/.config/goose/config.yaml <<'EOF'
           GOOSE_PROVIDER: groq
-          GOOSE_MODEL: llama-3.3-70b-versatile
+          GOOSE_MODEL: gemma2-9b-it
           keyring: false
           EOF
 
