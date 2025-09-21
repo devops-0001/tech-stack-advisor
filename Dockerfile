@@ -1,54 +1,89 @@
-# Multi-stage Dockerfile for Tech Stack Advisor ML App
+# syntax=docker/dockerfile:1
+# BuildKit optimized Dockerfile with advanced caching and multi-arch support
 
-# Stage 1: Builder stage for training the model
-FROM python:3.11-slim AS builder
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
+# Stage 1: Dependencies stage with cache mounts
+FROM --platform=$BUILDPLATFORM python:3.11-slim AS dependencies
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
+# Use cache mount for apt packages
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && apt-get install -y \
     gcc \
-    python3-dev \
-    && rm -rf /var/lib/apt/lists/*
+    python3-dev
 
-# Copy requirements and install Python dependencies
+# Use cache mount for pip packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --user -r requirements.txt
 
-# Copy training script and train the model
+# Stage 2: Model training stage
+FROM dependencies AS trainer
+
 COPY train.py .
-RUN python train.py
 
-# Stage 2: Production runtime stage
-FROM python:3.11-slim AS production
+# Train the model with cache mount for any downloads
+RUN --mount=type=cache,target=/tmp \
+    python train.py
 
-# Create non-root user for security
+# Stage 3: Final production stage
+FROM --platform=$TARGETPLATFORM python:3.11-slim AS production
+
+# Display build info for debugging
+RUN echo "Building for platform: $TARGETPLATFORM, architecture: $TARGETARCH"
+
+# Create non-root user
 RUN useradd --create-home --shell /bin/bash mluser
 
 WORKDIR /app
 
-# Copy Python packages from builder stage
-COPY --from=builder /root/.local /home/mluser/.local
+# Copy Python packages from dependencies stage
+COPY --from=dependencies /root/.local /home/mluser/.local
 
 # Copy application files
 COPY app.py .
 COPY requirements.txt .
 
-# Copy trained model from builder stage
-COPY --from=builder /app/model.pkl .
-COPY --from=builder /app/encoders.pkl .
+# Copy trained models from trainer stage
+COPY --from=trainer /app/*.pkl ./
 
-# Set ownership and switch to non-root user
+# Set proper ownership
 RUN chown -R mluser:mluser /app
 USER mluser
 
-# Make sure scripts in .local are usable
+# Update PATH for user-installed packages
 ENV PATH=/home/mluser/.local/bin:$PATH
 
-# Add health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:7860', timeout=3)" || exit 1
+# Health check with improved reliability
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7860', timeout=5)" || exit 1
 
 EXPOSE 7860
 
 CMD ["python", "app.py"]
+```
+
+### Step 3: Build for Multiple Platforms
+
+```
+# Build for single platform and load locally
+docker buildx build \
+  --platform linux/amd64 \
+  -t tech-stack-advisor:multiarch \
+  --load .
+
+# Login to Registrt to be able to push image 
+docker login 
+
+# For multiple architectures (requires registry push)
+# replace xxxxxx with your Dockerhub Username or equivalent
+docker buildx build \
+   --platform linux/amd64,linux/arm64 \
+   -t xxxxxx/tech-stack-advisor:multiarch \
+   --push .
